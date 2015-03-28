@@ -127,6 +127,11 @@ class Search
     private $minScore;
 
     /**
+     * @var PostFilter
+     */
+    private $postFilter;
+
+    /**
      * @return float
      */
     public function getMinScore()
@@ -465,7 +470,17 @@ class Search
      */
     public function getAggregations()
     {
-        return $this->aggregations;
+        if ($this->aggregations !== null) {
+            $aggregationsOutput = [];
+            foreach ($this->aggregations->all() as $aggregation) {
+                $aggregationsOutput = array_merge($aggregationsOutput, $aggregation->toArray());
+            }
+            if (!empty($aggregationsOutput)) {
+                return $aggregationsOutput;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -521,7 +536,11 @@ class Search
      */
     public function getHighlight()
     {
-        return $this->highlight;
+        if ($this->highlight) {
+            return $this->highlight->toArray();
+        }
+
+        return null;
     }
 
     /**
@@ -530,6 +549,41 @@ class Search
     public function getPostFilters()
     {
         return $this->postFilters;
+    }
+
+    /**
+     * Set Post filter.
+     */
+    public function setPostFilter()
+    {
+        if ($this->postFilters !== null) {
+            $this->postFilter = new PostFilter();
+            $this->postFilter->setFilter($this->postFilters);
+        }
+    }
+
+    /**
+     * @return null|string
+     */
+    public function getPostFilterType()
+    {
+        if ($this->getPostFilters()) {
+            return $this->postFilter->getType();
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array|null
+     */
+    public function getPostsFilterArray()
+    {
+        if ($this->getPostFilters()) {
+            return $this->postFilter->toArray();
+        }
+
+        return null;
     }
 
     /**
@@ -569,7 +623,11 @@ class Search
      */
     public function getSorts()
     {
-        return $this->sorts;
+        if ($this->sorts && $this->sorts->isRelevant()) {
+            return $this->sorts->toArray();
+        }
+
+        return null;
     }
 
     /**
@@ -577,7 +635,11 @@ class Search
      */
     public function getSource()
     {
-        return $this->source;
+        if ($this->source) {
+            return $this->source;
+        }
+
+        return null;
     }
 
     /**
@@ -593,7 +655,18 @@ class Search
      */
     public function getSuggesters()
     {
-        return $this->suggesters;
+        if ($this->suggesters !== null) {
+            $suggestersOutput = [];
+            foreach ($this->suggesters->all() as $suggester) {
+                $suggestersOutput = array_merge($suggestersOutput, $suggester->toArray());
+            }
+
+            if (!empty($suggestersOutput)) {
+                return $suggestersOutput;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -606,25 +679,32 @@ class Search
          * For now we use match all, but its gonna be changed.
          */
 
-        if ($this->filters !== null) {
-            $filteredQuery = new FilteredQuery();
-            $filteredQuery->setFilter($this->filters);
-            $this->addQuery($filteredQuery);
-        }
+        $this->setPostFilter();
+        $this->setFilteredQuery();
+
+        $out = array_filter(
+            [
+                '_source' => $this->getSource(),
+                'highlight' => $this->getHighlight(),
+                'aggregations' => $this->getAggregations(),
+                'suggest' => $this->getSuggesters(),
+                $this->getSortType() => $this->getSorts(),
+                $this->getPostFilterType() => $this->getPostsFilterArray(),
+            ]
+        );
 
         $output = $this->processQueries();
+        $params = $this->getParams();
 
-        if ($this->postFilters !== null) {
-            $postFilter = new PostFilter();
-            $postFilter->setFilter($this->postFilters);
+        return array_merge($output, $out, $params);
+    }
 
-            $output[$postFilter->getType()] = $postFilter->toArray();
-        }
-
-        if ($this->highlight !== null) {
-            $output['highlight'] = $this->highlight->toArray();
-        }
-
+    /**
+     * @return array
+     */
+    private function getParams()
+    {
+        $output = [];
         $params = [
             'from' => 'from',
             'size' => 'size',
@@ -641,36 +721,30 @@ class Search
             }
         }
 
-        if ($this->sorts && $this->sorts->isRelevant()) {
-            $output[$this->sorts->getType()] = $this->sorts->toArray();
-        }
-
-        if ($this->source !== null) {
-            $output['_source'] = $this->source;
-        }
-
-        if ($this->aggregations !== null) {
-            $aggregationsOutput = [];
-            foreach ($this->aggregations->all() as $aggregation) {
-                $aggregationsOutput = array_merge($aggregationsOutput, $aggregation->toArray());
-            }
-
-            if (!empty($aggregationsOutput)) {
-                $output['aggregations'] = $aggregationsOutput;
-            }
-        }
-
-        if ($this->suggesters !== null) {
-            $suggestersOutput = [];
-            foreach ($this->suggesters->all() as $suggester) {
-                $suggestersOutput = array_merge($suggestersOutput, $suggester->toArray());
-            }
-
-            if (!empty($suggestersOutput)) {
-                $output['suggest'] = $suggestersOutput;
-            }
-        }
-
         return $output;
+    }
+
+    /**
+     * @return string
+     */
+    private function getSortType()
+    {
+        if ($this->sorts) {
+            return $this->sorts->getType();
+        }
+
+        return null;
+    }
+
+    /**
+     * Set filtered query.
+     */
+    private function setFilteredQuery()
+    {
+        if ($this->filters !== null) {
+            $filteredQuery = new FilteredQuery();
+            $filteredQuery->setFilter($this->filters);
+            $this->addQuery($filteredQuery);
+        }
     }
 }
